@@ -1,0 +1,67 @@
+---
+Parameters:
+  InstanceTypeParameter:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+    Description: Enter t2.micro, t3.medium, t3.large or t3.xlarge. Default is t2.micro.
+Mappings:
+  RegionMap:
+    us-east-1:
+      HVM64: ami-087c17d1fe0178315
+Resources:
+  MyInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          InstallAndRun:
+            - install_docker
+        install_docker:
+          packages:
+            yum:
+              docker: []
+          services:
+            sysvinit:
+              docker:
+                enabled: "true"
+                ensureRunning: "true"
+          commands:
+            docker_for_ec2_user:
+              command: usermod -G docker ec2-user
+
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT10M
+    Properties:
+      AvailabilityZone: !Sub ${AWS::Region}a
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", HVM64]
+      InstanceType:
+        Ref: InstanceTypeParameter
+      KeyName: ec2key
+      SecurityGroups:
+        - !Ref SSHSecurityGroup
+      UserData:
+        "Fn::Base64":
+            !Sub |
+              #!/bin/bash -xe
+              yum update -y aws-cfn-bootstrap
+              /opt/aws/bin/cfn-init -s ${AWS::StackId} -r MyInstance --configsets InstallAndRun --region ${AWS::Region} 
+              /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource MyInstance --region ${AWS::Region}
+              yum install git -y      
+  SSHSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          FromPort: 22
+          IpProtocol: tcp
+          ToPort: 22
